@@ -1,5 +1,7 @@
 import { BrowserEventRules } from './event-rules'
 import { BrowserWebVitals } from './web-vitals'
+import { normalizeIdentity, type IdentityTraits } from './identity'
+export type { IdentityTraits } from './identity'
 /**
  * MetricPanel Analytics SDK
  * A TypeScript SDK for tracking events, goals, and revenue
@@ -92,6 +94,7 @@ export class MetricPanelSDK {
   private destroyed = false
   private rules: BrowserEventRules | null = null
   private vitals: BrowserWebVitals | null = null
+  private identifiedUserId: string | null = null
 
   constructor(config: MetricPanelConfig) {
     if (!config?.websiteId || typeof config.websiteId !== 'string') {
@@ -229,6 +232,88 @@ export class MetricPanelSDK {
       title: data?.title ?? document.title,
       ...(data?.referrer !== undefined ? { referrer: data.referrer } : {}),
     })
+  }
+
+  /** Link this visitor's activity to your user. Await after login, before tracking account activity. */
+  async identify(userId: string, traits: IdentityTraits = {}): Promise<void> {
+    const identity = normalizeIdentity(userId, traits)
+    if (this.destroyed || this.disabled || this.config.cookieless) return
+    if (!this.initialized || (this.consentMode && !this.consentGranted)) {
+      const { userId: pendingUserId, ...pendingTraits } = identity
+      this.queue.push(async () => {
+        try {
+          await this.identify(pendingUserId, pendingTraits)
+        } catch (error) {
+          this.config.onError?.(error instanceof Error ? error : new Error('Identification failed'))
+        }
+      })
+      return
+    }
+    if (this.identifiedUserId && this.identifiedUserId !== identity.userId) this.rotateIdentity()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const visitorId = this.visitorId
+      const response = await fetch(`${this.config.apiUrl}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          eventId: this.generateId(),
+          websiteId: this.config.websiteId,
+          visitorId,
+          sessionId: this.sessionId,
+          type: 'identify',
+          path: '/',
+          identity,
+          timestamp: new Date().toISOString(),
+        }),
+      })
+      // Never undo a logout/reset that happened while this request was in flight.
+      if (visitorId !== this.visitorId || this.destroyed || !this.initialized) return
+      if (response.status === 409 && attempt === 0) {
+        this.rotateIdentity()
+        continue
+      }
+      if (!response.ok) throw new Error(`MetricPanel identification failed with ${response.status}`)
+      const result = (await response.json()) as { identified?: boolean }
+      if (visitorId !== this.visitorId || this.destroyed || !this.initialized) return
+      if (result.identified !== true) throw new Error('MetricPanel identification was not accepted')
+      this.identifiedUserId = identity.userId
+      return
+    }
+  }
+
+  /** Call on logout. Rotate both IDs so later activity cannot inherit the previous account. */
+  reset(): void {
+    this.queue = []
+    this.rotateIdentity()
+  }
+
+  private rotateIdentity(): void {
+    this.identifiedUserId = null
+    if (this.destroyed) return
+    if (!this.config.cookieless) {
+      this.deleteCookie(VISITOR_COOKIE)
+      this.deleteCookie(SESSION_COOKIE)
+      this.deleteCookie(LEGACY_VISITOR_COOKIE)
+      this.deleteCookie(LEGACY_SESSION_COOKIE)
+    }
+    // Logout before consent must forget an earlier account without creating new identifiers.
+    this.visitorId = null
+    this.sessionId = null
+    if (this.initialized && !this.disabled) {
+      this.visitorId = this.generateId()
+      this.sessionId = this.generateId()
+      if (!this.config.cookieless) {
+        this.setCookie(VISITOR_COOKIE, this.visitorId, 365 * 24 * 60 * 60 * 1000)
+        this.setCookie(SESSION_COOKIE, this.sessionId, 30 * 60 * 1000)
+      }
+    }
+    try {
+      sessionStorage.removeItem(this.getAttributionStorageKey())
+      sessionStorage.removeItem(this.getReferrerStorageKey())
+    } catch {
+      /* Tracking still works when browser storage is unavailable. */
+    }
   }
 
   /**
@@ -369,6 +454,7 @@ export class MetricPanelSDK {
    * Stops tracking and clears stored data
    */
   revokeConsent(): void {
+    this.identifiedUserId = null
     this.vitals?.stop()
     this.rules?.stop()
     this.rules = null
@@ -411,6 +497,7 @@ export class MetricPanelSDK {
    * Stored identifiers remain available to a later instance unless consent is revoked.
    */
   destroy(): void {
+    this.identifiedUserId = null
     this.vitals?.stop()
     this.rules?.stop()
     this.rules = null
