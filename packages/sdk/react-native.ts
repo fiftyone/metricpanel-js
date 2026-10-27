@@ -2,6 +2,8 @@
  * MetricPanel React Native SDK entrypoint.
  * DOM-free tracking helpers for React Native and other native JavaScript runtimes.
  */
+import { normalizeIdentity, type IdentityTraits } from './identity'
+export type { IdentityTraits } from './identity'
 
 export interface MetricPanelNativeStorage {
   getItem(key: string): string | null | Promise<string | null>
@@ -103,6 +105,7 @@ export class MetricPanelNativeSDK {
   private sessionId: string | null
   private initialized = false
   private initPromise: Promise<void> | null = null
+  private identifiedUserId: string | null = null
 
   constructor(config: MetricPanelNativeConfig) {
     if (!config.websiteId || typeof config.websiteId !== 'string') {
@@ -137,6 +140,59 @@ export class MetricPanelNativeSDK {
       query: data.query ?? null,
       utm: data.utm,
     })
+  }
+
+  async identify(userId: string, traits: IdentityTraits = {}): Promise<void> {
+    const identity = normalizeIdentity(userId, traits)
+    if (this.config.cookieless || !this.config.storage) return
+    await this.init()
+    if (this.identifiedUserId && this.identifiedUserId !== identity.userId) await this.reset()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const visitorId = this.visitorId
+      const fetchImpl = this.config.fetch ?? globalThis.fetch
+      if (!fetchImpl) throw new Error('fetch is required for native tracking')
+      const response = await fetchImpl(`${this.config.apiUrl}/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.config.apiToken ? { Authorization: `Bearer ${this.config.apiToken}` } : {}),
+        },
+        body: JSON.stringify({
+          eventId: generateId(),
+          websiteId: this.config.websiteId,
+          visitorId,
+          sessionId: this.sessionId,
+          type: 'identify',
+          path: '/',
+          identity,
+          timestamp: new Date().toISOString(),
+        }),
+      })
+      if (visitorId !== this.visitorId) return
+      if (response.status === 409 && attempt === 0) {
+        await this.reset()
+        continue
+      }
+      if (!response.ok) throw new Error(`MetricPanel identification failed with ${response.status}`)
+      const body = response.text ? await response.text() : ''
+      if (visitorId !== this.visitorId) return
+      if (!body || JSON.parse(body).identified !== true)
+        throw new Error('MetricPanel identification was not accepted')
+      this.identifiedUserId = identity.userId
+      return
+    }
+  }
+
+  /** Rotate visitor and session on logout; resetSession alone does not clear account identity. */
+  async reset(): Promise<void> {
+    await this.init()
+    this.identifiedUserId = null
+    this.visitorId = generateId()
+    this.sessionId = generateId()
+    if (!this.config.cookieless) {
+      await this.config.storage?.setItem(VISITOR_ID_KEY, this.visitorId)
+      await this.config.storage?.setItem(SESSION_ID_KEY, this.sessionId)
+    }
   }
 
   async screen(name: string, data: NativeScreenData = {}): Promise<void> {
@@ -222,7 +278,7 @@ export class MetricPanelNativeSDK {
 
   async resetSession(): Promise<void> {
     this.sessionId = generateId()
-    await this.config.storage?.setItem(SESSION_ID_KEY, this.sessionId)
+    if (!this.config.cookieless) await this.config.storage?.setItem(SESSION_ID_KEY, this.sessionId)
   }
 
   private async init(): Promise<void> {

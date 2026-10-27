@@ -16,6 +16,77 @@ function createStorage(initial: Record<string, string> = {}): MetricPanelNativeS
 }
 
 describe('MetricPanelNativeSDK', () => {
+  it('identifies, reuses the visitor for events, and rotates both IDs on logout', async () => {
+    const fetch = vi.fn(async (_url: string, _init: any) => ({
+      ok: true,
+      status: 202,
+      text: async () => '{"identified":true}',
+    }))
+    const storage = createStorage()
+    const sdk = createMetricPanelNative({
+      websiteId: 'site',
+      apiUrl: 'https://api.example.com/api',
+      storage,
+      fetch,
+    })
+    await sdk.identify('account-1', { name: 'Jane', email: 'jane@example.com' })
+    const visitor = sdk.getVisitorId()
+    const session = sdk.getSessionId()
+    await sdk.event('account_action')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+      type: 'identify',
+      identity: { userId: 'account-1', name: 'Jane', email: 'jane@example.com' },
+    })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({
+      visitorId: visitor,
+      type: 'event',
+    })
+    expect(fetch.mock.calls[1][1].body).not.toContain('jane@example.com')
+    await sdk.reset()
+    expect(sdk.getVisitorId()).not.toBe(visitor)
+    expect(sdk.getSessionId()).not.toBe(session)
+    expect(await storage.getItem('mtrk_native_vid')).toBe(sdk.getVisitorId())
+  })
+
+  it('skips identification without persistent tracking and rejects invalid traits', async () => {
+    const fetch = vi.fn()
+    await createMetricPanelNative({
+      websiteId: 'site',
+      apiUrl: 'https://api.example.com/api',
+      fetch,
+    }).identify('u')
+    const sdk = createMetricPanelNative({
+      websiteId: 'site',
+      apiUrl: 'https://api.example.com/api',
+      storage: createStorage(),
+      cookieless: true,
+      fetch,
+    })
+    await sdk.identify('u')
+    await expect(sdk.identify('')).rejects.toThrow('userId')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rotates a visitor already linked to another account after an app restart', async () => {
+    const fetch = vi.fn(async (_url: string, _init: any) => ({
+      ok: true,
+      status: 202,
+      text: async () => '{"identified":true}',
+    }))
+    fetch.mockResolvedValueOnce({ ok: false, status: 409, text: async () => '' })
+    const sdk = createMetricPanelNative({
+      websiteId: 'site',
+      apiUrl: 'https://api.example.com/api',
+      storage: createStorage(),
+      fetch,
+    })
+    await sdk.identify('account-2')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetch.mock.calls[0][1].body).visitorId).not.toBe(
+      JSON.parse(fetch.mock.calls[1][1].body).visitorId
+    )
+  })
+
   it('tracks screen views without browser globals', async () => {
     const requests: Array<{ input: string; body: any; headers: Record<string, string> }> = []
     const fetch = vi.fn(async (input: string, init: any) => {

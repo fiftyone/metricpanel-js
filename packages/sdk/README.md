@@ -70,6 +70,43 @@ three-letter ISO codes. For USD, `2999` means `$29.99`. Goal values must be non-
 in the smallest currency unit. Custom event and goal properties are limited to 10 fields; keep them
 flat and do not send email addresses, names, credentials, or other sensitive personal data.
 
+## User identification
+
+After signup or login, await `identify()` before sending account activity:
+
+```typescript
+await metricpanel.identify('user_123', {
+  name: 'Jane Smith',
+  email: 'jane@example.com',
+})
+await metricpanel.event('subscription_started', { plan: 'scale' })
+
+// On logout, before tracking any anonymous activity:
+metricpanel.reset()
+```
+
+Available in SDK 1.4.0 once published, with the corresponding identity-enabled API deployment.
+Use your stable application user ID. Name and email are optional; omitted fields retain their
+previous values and `null` clears a field. Only these two profile traits are supported.
+A visitor cannot be reassigned to a different user: the SDK rotates visitor and session IDs
+when switching accounts or when the API reports an existing conflicting binding.
+
+Identification links the current visitor's earlier and subsequent activity to the profile.
+Multiple devices with the same user ID share the profile; visitor/session counts and journey
+rows remain per visitor. This does not create an event, goal, purchase or revenue entry.
+Names appear in Users and user IDs/emails in visitor details. The authenticated visitors API
+also returns an optional `identity` object. Profiles are scoped to each website.
+
+Identification is disabled in cookieless mode, when Do Not Track disables browser tracking,
+or until tracking consent is granted. Website cookieless and GDPR modes must also be disabled.
+No profile traits are saved in browser storage or copied into ordinary event properties.
+Visitor deletion removes its identity link and deletes the profile when its last link is removed.
+Identification is analytics metadata, never authentication or authorization evidence.
+
+React Native supports the same `identify()` method with persistent storage configured.
+Use `await metricpanel.reset()` on native logout; `resetSession()` alone keeps the same visitor.
+Server-side PHP and Laravel identification uses the browser visitor/session IDs as context.
+
 ## React Native
 
 Use the separate native entrypoint so React Native apps do not load browser-only code:

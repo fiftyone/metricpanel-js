@@ -58,6 +58,144 @@ describe('MetricPanel browser SDK', () => {
     vi.restoreAllMocks()
   })
 
+  it('identifies an existing anonymous visitor without leaking traits into subsequent events', async () => {
+    const fetchMock = mockTransport()
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ identified: true }),
+    } as never)
+    const sdk = createMetricPanel({ websiteId: 'site_123' })
+    await sdk.pageview()
+    const visitorId = sdk.getVisitorId()
+    await sdk.identify('account-123', { name: 'Jane', email: 'jane@example.com' })
+    await sdk.event('logged_in_action')
+    expect(requestBody(fetchMock, 1)).toMatchObject({
+      type: 'identify',
+      visitorId,
+      identity: { userId: 'account-123', name: 'Jane', email: 'jane@example.com' },
+    })
+    expect(requestBody(fetchMock, 2).visitorId).toBe(visitorId)
+    expect(requestBody(fetchMock, 2).identity).toBeUndefined()
+    expect(JSON.stringify(requestBody(fetchMock, 2))).not.toContain('jane@example.com')
+    const sessionId = sdk.getSessionId()
+    sdk.reset()
+    await sdk.event('logged_out_action')
+    expect(sdk.getVisitorId()).not.toBe(visitorId)
+    expect(sdk.getSessionId()).not.toBe(sessionId)
+    expect(requestBody(fetchMock, 3).visitorId).toBe(sdk.getVisitorId())
+  })
+
+  it('rotates conflicting visitors after reload, using fetch even when beacons are available', async () => {
+    const fetchMock = mockTransport()
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 409 })
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ identified: true }),
+    } as never)
+    vi.mocked(navigator.sendBeacon).mockReturnValue(true)
+    const sdk = createMetricPanel({ websiteId: 'site_123' })
+    await sdk.identify('new-account')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(requestBody(fetchMock, 0).visitorId).not.toBe(requestBody(fetchMock, 1).visitorId)
+    expect(navigator.sendBeacon).not.toHaveBeenCalled()
+  })
+
+  it('defers identity until consent, clears pending identity on reset, and skips cookieless', async () => {
+    const fetchMock = mockTransport()
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ identified: true }),
+    } as never)
+    const sdk = createMetricPanel({ websiteId: 'site_123', waitForConsent: true })
+    await sdk.identify('account-123')
+    expect(fetchMock).not.toHaveBeenCalled()
+    sdk.reset()
+    await sdk.grantConsent()
+    expect(fetchMock).not.toHaveBeenCalled()
+    await sdk.identify('account-123')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    sdk.revokeConsent()
+    await sdk.identify('account-123')
+    await createMetricPanel({ websiteId: 'cookieless', cookieless: true }).identify('account-123')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('flushes consent-gated identification before queued events, including account switches', async () => {
+    const fetchMock = mockTransport()
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ identified: true }),
+    } as never)
+    const sdk = createMetricPanel({ websiteId: 'site_123', waitForConsent: true })
+    await sdk.identify('account-1')
+    await sdk.event('first-account-event')
+    await sdk.identify('account-2')
+    await sdk.event('second-account-event')
+    expect(fetchMock).not.toHaveBeenCalled()
+    await sdk.grantConsent()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(requestBody(fetchMock, 0).visitorId).toBe(requestBody(fetchMock, 1).visitorId)
+    expect(requestBody(fetchMock, 2).visitorId).toBe(requestBody(fetchMock, 3).visitorId)
+    expect(requestBody(fetchMock, 0).visitorId).not.toBe(requestBody(fetchMock, 2).visitorId)
+  })
+
+  it('forgets earlier account cookies when reset happens before consent', async () => {
+    mockTransport()
+    const previous = createMetricPanel({ websiteId: 'site_123' })
+    const oldVisitor = previous.getVisitorId()
+    previous.destroy()
+    const sdk = createMetricPanel({ websiteId: 'site_123', waitForConsent: true })
+    sdk.reset()
+    expect(document.cookie).not.toContain(String(oldVisitor))
+    expect(sdk.getVisitorId()).toBeNull()
+    await sdk.grantConsent()
+    expect(sdk.getVisitorId()).not.toBe(oldVisitor)
+  })
+
+  it('respects Do Not Track and does not restore identity after reset during a request', async () => {
+    const fetchMock = mockTransport()
+    Object.defineProperty(navigator, 'doNotTrack', { configurable: true, value: '1' })
+    await createMetricPanel({ websiteId: 'site_123' }).identify('u')
+    expect(fetchMock).not.toHaveBeenCalled()
+    Object.defineProperty(navigator, 'doNotTrack', { configurable: true, value: null })
+    let finish!: (value: unknown) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }) as never
+    )
+    const sdk = createMetricPanel({ websiteId: 'site_123' })
+    const pending = sdk.identify('account-1')
+    sdk.reset()
+    const loggedOutVisitor = sdk.getVisitorId()
+    finish({ ok: true, status: 202, json: async () => ({ identified: true }) })
+    await pending
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ identified: true }),
+    } as never)
+    await sdk.identify('account-2')
+    expect(sdk.getVisitorId()).toBe(loggedOutVisitor)
+  })
+
+  it('rejects invalid identities and reports server failures to the caller', async () => {
+    const fetchMock = mockTransport({ ok: false, status: 503 })
+    const sdk = createMetricPanel({ websiteId: 'site_123' })
+    await expect(sdk.identify(' ')).rejects.toThrow('userId')
+    await expect(sdk.identify('u', { email: 'bad' })).rejects.toThrow('email')
+    await expect(sdk.identify('u', { password: 'secret' } as never)).rejects.toThrow(
+      'only name and email'
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    await expect(sdk.identify('u')).rejects.toThrow('503')
+  })
+
   it('uses hosted ingestion by default and preserves an explicit proxy override', async () => {
     const fetchMock = mockTransport()
 
