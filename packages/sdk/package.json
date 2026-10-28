@@ -1,6 +1,6 @@
 {
   "name": "@metricpanel/sdk",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Official browser and React Native SDK for MetricPanel analytics",
   "type": "module",
   "main": "dist/index.cjs",
@@ -62,11 +62,11 @@
   "license": "MIT",
   "homepage": "https://metricpanel.io/docs/sdk",
   "bugs": {
-    "url": "https://github.com/fiftyone-digital/metricpanel-js/issues"
+    "url": "https://github.com/fiftyone/metricpanel-js/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fiftyone-digital/metricpanel-js.git",
+    "url": "git+https://github.com/fiftyone/metricpanel-js.git",
     "directory": "packages/sdk"
   },
   "engines": {
