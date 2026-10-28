@@ -1,6 +1,6 @@
 {
   "name": "@metricpanel/ai-crawl",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "description": "Server-side AI crawler tracking for MetricPanel",
   "type": "module",
   "main": "dist/index.cjs",
@@ -43,11 +43,11 @@
   },
   "homepage": "https://docs.metricpanel.io/ai-crawlers",
   "bugs": {
-    "url": "https://github.com/fiftyone-digital/metricpanel-js/issues"
+    "url": "https://github.com/fiftyone/metricpanel-js/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fiftyone-digital/metricpanel-js.git",
+    "url": "git+https://github.com/fiftyone/metricpanel-js.git",
     "directory": "packages/ai-crawl"
   },
   "keywords": [
