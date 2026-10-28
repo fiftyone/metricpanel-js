@@ -17,7 +17,11 @@ type MirrorManifest = {
 
 const repositoryRoot = join(import.meta.dir, '..')
 const manifestPath = join(repositoryRoot, '.mirror-manifest.json')
-const expectedRepository = 'git+https://github.com/fiftyone-digital/metricpanel-js.git'
+// Accept the former owner while existing package releases transition to the current repository.
+const expectedRepositories = new Set([
+  'git+https://github.com/fiftyone/metricpanel-js.git',
+  'git+https://github.com/fiftyone-digital/metricpanel-js.git',
+])
 const ignoredNames = new Set(['coverage', 'dist', 'node_modules', '.turbo'])
 
 async function listFiles(directory: string): Promise<string[]> {
@@ -84,7 +88,7 @@ for (const mirroredPackage of manifest.packages) {
   if (packageJson.name !== mirroredPackage.name) {
     throw new Error(`${mirroredPackage.path}/package.json has an unexpected package name`)
   }
-  if (packageJson.repository?.url !== expectedRepository) {
+  if (!packageJson.repository || !expectedRepositories.has(packageJson.repository.url ?? '')) {
     throw new Error(`${mirroredPackage.name} must point npm metadata at metricpanel-js`)
   }
   if (packageJson.repository.directory !== mirroredPackage.path) {
