@@ -86,6 +86,22 @@ describe('MetricPanel browser SDK', () => {
     expect(requestBody(fetchMock, 3).visitorId).toBe(sdk.getVisitorId())
   })
 
+  it('sends beacons as text/plain so browsers skip the CORS preflight', async () => {
+    const fetchMock = mockTransport()
+    vi.mocked(navigator.sendBeacon).mockReturnValue(true)
+    const sdk = createMetricPanel({ websiteId: 'site_123' })
+    await sdk.pageview()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(navigator.sendBeacon).toHaveBeenCalledTimes(1)
+    const [url, body] = vi.mocked(navigator.sendBeacon).mock.calls[0] ?? []
+    expect(url).toBe(`${METRICPANEL_API_URL}/events`)
+    expect(body).toBeInstanceOf(Blob)
+    expect((body as Blob).type).toBe('text/plain;charset=utf-8')
+    const payload = JSON.parse(await (body as Blob).text()) as Record<string, unknown>
+    expect(payload).toMatchObject({ websiteId: 'site_123', type: 'pageview' })
+  })
+
   it('rotates conflicting visitors after reload, using fetch even when beacons are available', async () => {
     const fetchMock = mockTransport()
     fetchMock.mockResolvedValueOnce({ ok: false, status: 409 })

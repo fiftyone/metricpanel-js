@@ -598,9 +598,12 @@ export class MetricPanelSDK {
     const url = `${this.config.apiUrl}/events`
     const data = JSON.stringify(payload)
 
-    // Try sendBeacon first (non-blocking)
+    // Try sendBeacon first (non-blocking). The body is JSON, but the Blob is typed text/plain on
+    // purpose: it is a CORS-safelisted type, so the browser sends the beacon without a preflight.
+    // A JSON type forces a credentialed preflight, and if that fails the browser drops the beacon
+    // while sendBeacon still returns true. The API parses the body whatever its content type.
     if (navigator.sendBeacon) {
-      const blob = new Blob([data], { type: 'application/json' })
+      const blob = new Blob([data], { type: 'text/plain;charset=UTF-8' })
       const sent = navigator.sendBeacon(url, blob)
 
       if (sent) {

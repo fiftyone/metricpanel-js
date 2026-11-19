@@ -1,6 +1,6 @@
 {
   "name": "@metricpanel/sdk",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Official browser and React Native SDK for MetricPanel analytics",
   "type": "module",
   "main": "dist/index.cjs",

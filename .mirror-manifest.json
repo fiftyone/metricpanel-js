@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "fiftyone-digital/metricpanel",
-  "sourceCommit": "8f9b4a8377f5878631eb576529ade03b420620f4",
+  "sourceCommit": "48de592bccf0982e81cc9d313ed6500ed3998cb4",
   "packages": [
     {
       "name": "@metricpanel/sdk",
@@ -17,9 +17,9 @@
         "event-rules.ts": "daa2943e9cdeeaabc092b2b8774deb88de6ced3fc81db477d46b031ad40e59a2",
         "example.html": "6f2410f40abd237f579e1ebdbfd1aee7983655332a19adf1407d5892b0772c22",
         "identity.ts": "daebb8393ece24fed31a91879ff048378bd5cef706884b6b0c9fc5575efbf2b2",
-        "index.test.ts": "27eac01da4fec8bc7dfa0c401ce3d5286bc701a608e81b33365eb2a0a76e54d1",
-        "index.ts": "71947b6b1ee1f5e916109c62d798d42b1673b74fb88637571f8c1c8a249fb1fb",
-        "package.json": "e5bc76474345fb5d47e9122311eb309be3e8ad804089b98d28cf394753a34e1f",
+        "index.test.ts": "7624b22bdbee4d3afdb18b6a973eb4bbbbd6ae2f499f6ea1a32316aa598daf4a",
+        "index.ts": "26dc0316266a3a8b55857108ac879478e022bbf45793d3690e748fc881946619",
+        "package.json": "605392a671cbdc30d93eaac689d9202f535576ed3949bb6cecde589e6165e353",
         "react-native.test.ts": "5da74b0f1eeb762462d163f5490ca4a5f692ec20f4fe7075e00550cebb67d74f",
         "react-native.ts": "89472307b5cee0b0f3f77d8ff185385cbdc266d33f427f33a047ae2f291d5a2a",
         "tsconfig.json": "c194f3a848534faa622f670354a7b9cb5fc7502e9b239d06ec8390a53cb0c94e",
